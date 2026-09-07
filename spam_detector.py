@@ -1,221 +1,167 @@
 import pandas as pd
-import string
-import nltk
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-from nltk.stem import WordNetLemmatizer
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.model_selection import train_test_split
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.metrics import accuracy_score, classification_report
-from wordcloud import WordCloud
 import matplotlib.pyplot as plt
-from collections import Counter
-
-# Download required NLTK resources
-try:
-    nltk.data.find('tokenizers/punkt')
-    nltk.data.find('corpora/stopwords')
-    nltk.data.find('corpora/wordnet')
-except LookupError:
-    nltk.download('punkt')
-    nltk.download('stopwords')
-    nltk.download('wordnet')
-
-# Instantiate Lemmatizer and Stopwords globally or locally
-lemmatizer = WordNetLemmatizer()
-stop_words = set(stopwords.words('english'))
-
-def clean_text(text):
-    """
-    Cleans the input text by performing:
-    - Lowercasing
-    - Punctuation removal
-    - Tokenization
-    - Stopword removal
-    - Lemmatization
-    """
-    if not isinstance(text, str):
-        return ""
-    
-    # 1. Lowercasing
-    text = text.lower()
-    
-    # 2. Punctuation removal
-    text = text.translate(str.maketrans('', '', string.punctuation))
-    
-    # 3. Tokenization
-    # Using nltk word_tokenize instead of simple split()
-    # If punkt is missing this will fail, hence the download check above.
-    # We can also use a fallback but let's stick to the pipeline requested.
-    # Fallback to simple split if word_tokenize fails somehow:
-    try:
-        tokens = word_tokenize(text)
-    except LookupError:
-        nltk.download('punkt_tab')
-        tokens = word_tokenize(text)
-    
-    # 4 & 5. Stopword removal and lemmatization
-    cleaned_tokens = [lemmatizer.lemmatize(word) for word in tokens if word not in stop_words]
-    
-    return " ".join(cleaned_tokens)
-
-def load_and_preprocess_data(file_path):
-    """
-    Loads data and applies preprocessing.
-    """
-    print("Loading data...")
-    try:
-        if file_path.endswith('.xlsx') or file_path.endswith('.xls'):
-            df = pd.read_excel(file_path)
-        else:
-            df = pd.read_csv(file_path)
-    except Exception as e:
-        print(f"Error loading {file_path}: {e}")
-        print("Using dummy data for demonstration purposes...")
-        df = pd.DataFrame({
-            'Category': ['ham', 'spam', 'ham', 'spam', 'ham', 'spam', 'ham'],
-            'Message': [
-                'Hi, I will be late for the meeting.',
-                'WINNER!! You have won a free lottery ticket. Call 123456 now!',
-                'Can you pick up groceries on your way back?',
-                'Urgent! Your bank account needs verification. Click link to secure.',
-                'Let\'s catch up over the weekend.',
-                'Get cheap loans instantly. No credit check required. Apply now.',
-                'Sure, I will send the report by tonight.'
-            ]
-        })
-
-    # Encode labels (spam = 1, ham = 0)
-    df['Label'] = df['Category'].map({'spam': 1, 'ham': 0})
-    
-    print("Applying text cleaning (this might take a few moments for a large dataset)...")
-    df['Cleaned_Message'] = df['Message'].apply(clean_text)
-    
-    return df
-
-def train_and_evaluate_model(df):
-    """
-    Extracts features, trains the model, and evaluates it.
-    """
-    print("Extracting features using TfidfVectorizer...")
-    vectorizer = TfidfVectorizer()
-    X = vectorizer.fit_transform(df['Cleaned_Message'])
-    y = df['Label']
-    
-    # Split the dataset: 80% train, 20% test
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    print("Training Multinomial Naive Bayes model...")
-    model = MultinomialNB()
-    model.fit(X_train, y_train)
-    
-    print("Evaluating model...")
-    y_pred = model.predict(X_test)
-    
-    print("\n--- Model Evaluation ---")
-    print(f"Accuracy Score: {accuracy_score(y_test, y_pred):.4f}")
-    print("\nClassification Report:")
-    # Prevent warnings if target_names are missing in small dummy dataset
-    labels_present = sorted(list(y_test.unique()))
-    target_names = ['Ham', 'Spam']
-    target_names_present = [target_names[i] for i in labels_present]
-    
-    print(classification_report(y_test, y_pred, target_names=target_names_present, labels=labels_present))
-    
-    return model, vectorizer
-
-def visualize_data(df):
-    """
-    Generates word clouds and frequency bar charts.
-    """
-    print("Generating visualizations...")
-    
-    # Separate data
-    spam_messages = " ".join(df[df['Label'] == 1]['Cleaned_Message'])
-    ham_messages = " ".join(df[df['Label'] == 0]['Cleaned_Message'])
-    
-    plt.figure(figsize=(15, 6))
-    
-    # Spam Word Cloud
-    if spam_messages.strip():
-        spam_wc = WordCloud(width=600, height=400, background_color='black', colormap='Reds').generate(spam_messages)
-        plt.subplot(1, 2, 1)
-        plt.imshow(spam_wc, interpolation='bilinear')
-        plt.title('Spam Messages Word Cloud')
-        plt.axis('off')
-    
-    # Ham Word Cloud
-    if ham_messages.strip():
-        ham_wc = WordCloud(width=600, height=400, background_color='white', colormap='Greens').generate(ham_messages)
-        plt.subplot(1, 2, 2)
-        plt.imshow(ham_wc, interpolation='bilinear')
-        plt.title('Ham Messages Word Cloud')
-        plt.axis('off')
-        
-    plt.tight_layout()
-    plt.savefig('wordclouds.png')
-    print("Word clouds saved as 'wordclouds.png'.")
-    
-    # Top 10 Frequent Words
-    all_words = " ".join(df['Cleaned_Message']).split()
-    word_counts = Counter(all_words)
-    top_10_words = dict(word_counts.most_common(10))
-    
-    plt.figure(figsize=(10, 6))
-    plt.bar(top_10_words.keys(), top_10_words.values(), color='skyblue', edgecolor='black')
-    plt.title('Top 10 Most Frequent Words in Dataset')
-    plt.xlabel('Words')
-    plt.ylabel('Frequency')
-    plt.xticks(rotation=45)
-    plt.savefig('top_words.png')
-    print("Top words bar chart saved as 'top_words.png'.")
-
-def predict_custom_sms(message, model, vectorizer):
-    """
-    Predicts whether a custom string is Spam or Ham.
-    """
-    # 1. Clean the string using the exact same pre-processing
-    cleaned_message = clean_text(message)
-    
-    # 2. Vectorize using the fitted vectorizer
-    vectorized_message = vectorizer.transform([cleaned_message])
-    
-    # 3. Predict and classify
-    prediction = model.predict(vectorized_message)[0]
-    
-    label = "Spam" if prediction == 1 else "Ham"
-    
-    print("\n--- Custom SMS Prediction ---")
-    print(f"Original SMS  : '{message}'")
-    print(f"Cleaned SMS   : '{cleaned_message}'")
-    print(f"Classification: >>> {label} <<<")
-    
-    return label
+import sys
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, confusion_matrix, ConfusionMatrixDisplay
 
 def main():
-    # Replace 'spam_dataset.csv' with your actual dataset file path
-    dataset_path = 'spam_dataset.xlsx' 
-    
-    # 1. Data Pre-processing
-    df = load_and_preprocess_data(dataset_path)
-    
-    if df.empty:
-        print("Error: Empty dataset.")
-        return
+    # Force UTF-8 encoding for Windows terminals to print emojis correctly
+    if sys.stdout.encoding != 'utf-8':
+        sys.stdout.reconfigure(encoding='utf-8')
         
-    # 2 & 3. Feature Extraction and Model Training
-    model, vectorizer = train_and_evaluate_model(df)
+    # Replace with the path to your dataset (assuming a CSV format as requested)
+    file_path = 'spam_dataset.csv' 
     
-    # 4. Data Visualization
-    visualize_data(df)
+    # ---------------------------------------------------------
+    # Task 1 — Load and Explore the Dataset
+    # ---------------------------------------------------------
+    print("=== Task 1: Load and Explore the Dataset ===")
+    try:
+        # Load the CSV
+        df = pd.read_csv(file_path)
+    except FileNotFoundError:
+        # Fallback to the .xlsx file you have in the directory
+        try:
+            df = pd.read_excel('spam_dataset.xlsx')
+            print("Loaded 'spam_dataset.xlsx' instead of CSV.")
+        except FileNotFoundError:
+            print(f"Error: {file_path} not found. Please ensure the file exists in the directory.")
+            return
+
+    # Display the first 5 rows
+    print("\nFirst 5 rows of the dataset:")
+    print(df.head())
+
+    # Print the number of rows and columns
+    print(f"\nNumber of rows: {df.shape[0]}")
+    print(f"Number of columns: {df.shape[1]}")
+
+    # Print the count of Ham vs. Spam messages
+    print("\nCount of Ham vs. Spam messages:")
+    print(df['Category'].value_counts())
+
+    # ---------------------------------------------------------
+    # Task 2 — Visualize the Dataset
+    # ---------------------------------------------------------
+    print("\n=== Task 2: Visualize the Dataset ===")
+    plt.figure(figsize=(6, 4))
+    df['Category'].value_counts().plot(kind='bar', color=['skyblue', 'salmon'])
+    plt.title("Number of Spam vs. Ham Messages")
+    plt.xlabel("Message Type")
+    plt.ylabel("Frequency")
+    plt.xticks(rotation=0)
+    plt.tight_layout()
+    # Using savefig instead of show() to avoid blocking execution in background runs
+    plt.savefig('category_distribution.png') 
+    print("Bar chart saved as 'category_distribution.png'")
     
-    # 5. Custom Prediction Pipeline
-    sample_spam = "CONGRATULATIONS! You've been selected for a $500 gift card. Reply WIN to claim."
-    sample_ham = "Hey, are we still meeting up for coffee tomorrow at 10?"
+    print("\nQuestion: Which type of message is more common in the dataset?")
+    if df['Category'].value_counts().idxmax().lower() == 'ham':
+        print("Answer: 'ham' messages are more common in the dataset.")
+    else:
+        print("Answer: 'spam' messages are more common in the dataset.")
+
+    # ---------------------------------------------------------
+    # Task 3 — Prepare the Data
+    # ---------------------------------------------------------
+    print("\n=== Task 3: Prepare the Data ===")
+    # Convert Category labels into numerical values (Ham = 0, Spam = 1)
+    df['Category'] = df['Category'].map(lambda x: 1 if str(x).lower() == 'spam' else 0)
     
-    predict_custom_sms(sample_spam, model, vectorizer)
-    predict_custom_sms(sample_ham, model, vectorizer)
+    # Separate the data into X (Message) and y (Category)
+    X = df['Message'].astype(str)
+    y = df['Category']
+    print("Data successfully converted. Separated into X (Message) and y (Category).")
+
+    # ---------------------------------------------------------
+    # Task 4 — Split the Dataset
+    # ---------------------------------------------------------
+    print("\n=== Task 4: Split the Dataset ===")
+    # We split the dataset into training and testing sets to evaluate how well our model 
+    # generalizes to new, unseen data, which helps prevent overfitting on the training data.
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    print("Dataset divided into 80% training data and 20% testing data.")
+
+    # ---------------------------------------------------------
+    # Task 5 — Convert Text into Numbers
+    # ---------------------------------------------------------
+    print("\n=== Task 5: Convert Text into Numbers ===")
+    # We cannot directly feed text to a Machine Learning model because algorithms 
+    # rely on mathematical computations (like distances, weights, and probabilities) 
+    # which require numerical input rather than raw strings.
+    vectorizer = CountVectorizer(stop_words='english')
+    X_train_vectorized = vectorizer.fit_transform(X_train)
+    X_test_vectorized = vectorizer.transform(X_test)
+    print("Text messages converted into numerical features using CountVectorizer (stopwords removed).")
+
+    # ---------------------------------------------------------
+    # Task 6 — Train a Machine Learning Model
+    # ---------------------------------------------------------
+    print("\n=== Task 6: Train a Machine Learning Model ===")
+    model = LogisticRegression()
+    model.fit(X_train_vectorized, y_train)
+    print("LogisticRegression model successfully trained.")
+
+    # ---------------------------------------------------------
+    # Task 7 — Make Predictions
+    # ---------------------------------------------------------
+    print("\n=== Task 7: Make Predictions ===")
+    # Predict the labels of the test data and store them in a variable named exactly 'predictions'
+    predictions = model.predict(X_test_vectorized)
+    print("Predictions made on the test set and stored in the 'predictions' variable.")
+
+    # ---------------------------------------------------------
+    # Task 8 — Evaluate the Model
+    # ---------------------------------------------------------
+    print("\n=== Task 8: Evaluate the Model ===")
+    accuracy = accuracy_score(y_test, predictions)
+    print(f"Model Accuracy: {accuracy:.4f}")
+    
+    # Generate and display a Confusion Matrix
+    cm = confusion_matrix(y_test, predictions)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Ham (0)', 'Spam (1)'])
+    disp.plot(cmap='Blues')
+    plt.title('Confusion Matrix')
+    plt.savefig('confusion_matrix.png')
+    print("Confusion matrix generated and saved as 'confusion_matrix.png'")
+    
+    # Calculate exactly how many messages were classified correctly (Sum of the diagonal in CM)
+    correctly_classified = cm[0, 0] + cm[1, 1]
+    print(f"\nThe model classified exactly {correctly_classified} messages correctly out of {len(y_test)} total test messages.")
+
+    # ---------------------------------------------------------
+    # Task 9 — Test Your Own SMS
+    # ---------------------------------------------------------
+    print("\n=== Task 9: Test Your Own SMS ===")
+    while True:
+        try:
+            print("\nType 'quit' or press CTRL+C to exit.")
+            user_sms = input("Enter a new SMS message to classify: ")
+            
+            if user_sms.strip().lower() == 'quit':
+                print("Exiting prediction loop...")
+                break
+            
+            if not user_sms.strip():
+                continue
+            
+            # Transform using the fitted CountVectorizer
+            transformed_input = vectorizer.transform([user_sms])
+            
+            # Predict the outcome
+            prediction = model.predict(transformed_input)[0]
+            
+            # Print exact required output
+            if prediction == 0:
+                print("📩 HAM MESSAGE")
+            else:
+                print("🚨 SPAM MESSAGE")
+                
+        except (EOFError, KeyboardInterrupt):
+            print("\nExiting script.")
+            break
 
 if __name__ == "__main__":
     main()
